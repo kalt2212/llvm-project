@@ -15,10 +15,12 @@
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/IR/DataLayout.h"
+#include "llvm/IR/LLVMContext.h"
 #include "llvm/SandboxIR/Type.h"
 #include "llvm/SandboxIR/Utils.h"
 #include "llvm/Support/Compiler.h"
 #include <iterator>
+#include <numeric>
 
 namespace llvm {
 /// Traits for DenseMap.
@@ -78,6 +80,12 @@ template <typename T, size_t N> BndlRef(const T (&Arr)[N]) -> BndlRef<T>;
 /// @}
 
 class InstrMaps;
+
+/// \Returns the combined vector type for \p Bndl, even when the element types
+/// differ. For example: i8,i8,i16 will return <4 x i8>. Mixed float/integer
+/// bundles are combined into an integer vector.
+LLVM_ABI Type *getCombinedVectorTypeFor(BndlRef<Value *> Bndl,
+                                        const DataLayout &DL);
 
 using BundleTy = SmallVector<Value *, 4>;
 
@@ -161,34 +169,6 @@ public:
       NumElts = VecTy->getNumElements() * NumElts;
     }
     return FixedVectorType::get(ElemTy, NumElts);
-  }
-  /// \Returns the combined vector type for \p Bndl, even when the element types
-  /// differ. For example: i8,i8,i16 will return <4 x i8>. \Returns null if
-  /// types are of mixed float/integer types.
-  template <typename T>
-  static Type *getCombinedVectorTypeFor(BndlRef<T *> Bndl,
-                                        const DataLayout &DL) {
-    assert(!Bndl.empty() && "Expected non-empty Bndl!");
-    unsigned TotalBits = 0;
-    unsigned MinElmBits = std::numeric_limits<unsigned>::max();
-    Type *MinElmTy = nullptr;
-    for (T *V : Bndl) {
-      Type *ElmTy = getElementType(Utils::getExpectedType(V));
-
-      unsigned ElmBits = Utils::getNumBits(ElmTy, DL);
-      TotalBits += ElmBits * VecUtils::getNumLanes(V);
-      if (ElmBits < MinElmBits) {
-        MinElmBits = ElmBits;
-        MinElmTy = ElmTy;
-      }
-    }
-    unsigned NumElms = TotalBits / MinElmBits;
-    return FixedVectorType::get(MinElmTy, NumElms);
-  }
-
-  static Type *getCombinedVectorTypeFor(std::initializer_list<Value *> Bndl,
-                                        const DataLayout &DL) {
-    return getCombinedVectorTypeFor(BndlRef<Value *>(Bndl), DL);
   }
   /// \Returns the instruction in \p Instrs that is lowest in the BB. Expects
   /// that all instructions are in the same BB.
